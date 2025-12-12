@@ -107,7 +107,7 @@ module webapp 'br/public:avm/res/web/static-site:0.9.3' = {
   scope: rg
   params: {
     name: webAppName
-    location: location
+    location: 'westus2' // Static Web Apps are global, but needs a specific region if a backend API is ever configured. Using westus2 as it is widely available.
     tags: union(tags, { 'azd-service-name': 'web' })
     sku: 'Standard'
     managedIdentities: {
