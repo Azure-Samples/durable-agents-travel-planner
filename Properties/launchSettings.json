@@ -1,0 +1,28 @@
+{
+  "profiles": {
+    "TravelPlannerFunctions": {
+      "commandName": "Project",
+      "commandLineArgs": "--port 7071",
+      "launchBrowser": false,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "DOTNET_ENVIRONMENT": "Development",
+        "DURABLE_TASK_SCHEDULER_CONNECTION_STRING": "Endpoint=http://localhost:8080;Authentication=None",
+        "TASKHUB_NAME": "TravelPlannerTaskHub"
+      }
+    },
+    "TravelPlannerFunctions-Debug": {
+      "commandName": "Project",
+      "commandLineArgs": "--port 7071",
+      "launchBrowser": true,
+      "launchUrl": "http://localhost:7071/api/travel-planner",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "DOTNET_ENVIRONMENT": "Development",
+        "DURABLE_TASK_SCHEDULER_CONNECTION_STRING": "Endpoint=http://localhost:8080;Authentication=None",
+        "TASKHUB_NAME": "TravelPlannerTaskHub",
+        "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated"
+      }
+    }
+  }
+}

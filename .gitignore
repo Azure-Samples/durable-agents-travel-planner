@@ -3,13 +3,28 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
+# macOS
+.DS_Store
+
+# Azure Developer CLI
+.azure/
+
+# Azure Functions local settings (may contain secrets)
+local.settings.json
+
+# Environment files
+.env
+.env.*
+
+# Frontend build output
+Frontend/build/
+
 # User-specific files
 *.rsuser
 *.suo
 *.user
 *.userosscache
 *.sln.docstates
-*.env
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

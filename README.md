@@ -1,57 +1,241 @@
-# Project Name
+# AI Travel Planner with Durable Agents
 
-(short, 1-3 sentenced, description of the project)
+A travel planning application that demonstrates how to build **durable AI agents** using the [Durable Task extension for Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/user-guide/agents/agent-types/durable-agent/create-durable-agent). The application coordinates multiple specialized AI agents to create comprehensive, personalized travel plans through a structured workflow.
 
-## Features
+## Overview
 
-This project framework provides the following features:
+This sample showcases an **agentic workflow** where specialized AI agents collaborate to plan travel experiences. Each agent focuses on a specific aspect of travel planning—destination recommendations, itinerary creation, and local insights—orchestrated by the Durable Task extension for reliability and state management.
 
-* Feature 1
-* Feature 2
-* ...
+### Why Durable Agents?
 
-## Getting Started
+Traditional AI agents can be unpredictable and inconsistent. The [Durable Task extension for Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/user-guide/agents/agent-types/durable-agent/create-durable-agent) solves this by providing:
 
-### Prerequisites
+- **Deterministic workflows**: Pre-defined steps ensure consistent, high-quality results
+- **Built-in resilience**: Automatic state persistence and recovery from failures  
+- **Human-in-the-loop**: Native support for approval workflows before booking
+- **Scalability**: Serverless execution that scales with demand
 
-(ideally very short, if any)
+## Architecture
 
-- OS
-- Library version
-- ...
+![architecture](./images/architecture.png)
 
-### Installation
+### Workflow
 
-(ideally very short)
+1. **User Request** → User submits travel preferences via React frontend
+2. **Destination Recommendation** → AI agent analyzes preferences and suggests destinations
+3. **Itinerary Planning** → AI agent creates detailed day-by-day plans
+4. **Local Recommendations** → AI agent adds insider tips and attractions
+5. **Storage** → Travel plan saved to Azure Blob Storage
+6. **Approval** → User reviews and approves the plan
+7. **Booking** → Upon approval, booking process completes
 
-- npm install [package name]
-- mvn install
-- ...
+### Tech Stack
 
-### Quickstart
-(Add steps to get up and running quickly)
+| Component | Technology |
+|-----------|------------|
+| **Backend** | .NET 9, Azure Functions (Isolated Worker) |
+| **AI Framework** | Microsoft Agent Framework with Durable Task Extension |
+| **Orchestration** | Durable Task Scheduler |
+| **AI Model** | Azure OpenAI (GPT-4o-mini) |
+| **Frontend** | React |
+| **Hosting** | Azure Static Web Apps, Azure Functions |
+| **Storage** | Azure Blob Storage |
+| **Infrastructure** | Bicep, Azure Developer CLI (azd) |
 
-1. git clone [repository clone url]
-2. cd [repository name]
-3. ...
+## Prerequisites
 
+Before you begin, ensure you have the following installed:
 
-## Demo
+- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
+- [Node.js 18+](https://nodejs.org/) and npm
+- [Azure Developer CLI (azd)](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd)
+- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
+- [Azure Functions Core Tools v4](https://docs.microsoft.com/en-us/azure/azure-functions/functions-run-local)
+- [Docker](https://www.docker.com/get-started) (for local development)
+- An Azure subscription with permissions to create resources
 
-A demo app is included to show how to use the project.
+## Deploy to Azure
 
-To run the demo, follow these steps:
+### 1. Clone the Repository
 
-(Add steps to start up the demo)
+**Bash**
+```bash
+git clone https://github.com/Azure-Samples/Durable-Task-Scheduler.git
+cd Durable-Task-Scheduler/samples/durable-functions/dotnet/AiAgentTravelPlanOrchestrator
+```
 
-1.
-2.
-3.
+**PowerShell**
+```powershell
+git clone https://github.com/Azure-Samples/Durable-Task-Scheduler.git
+cd Durable-Task-Scheduler\samples\durable-functions\dotnet\AiAgentTravelPlanOrchestrator
+```
 
-## Resources
+### 2. Login to Azure
 
-(Any additional resources or related projects)
+**Bash**
+```bash
+azd auth login
+az login
+```
 
-- Link to supporting information
-- Link to similar sample
-- ...
+**PowerShell**
+```powershell
+azd auth login
+az login
+```
+
+### 3. Provision and Deploy
+
+Run the following command to provision all Azure resources and deploy the application:
+
+**Bash**
+```bash
+azd up
+```
+
+**PowerShell**
+```powershell
+azd up
+```
+
+This command will:
+- Create a new resource group
+- Provision Azure OpenAI, Durable Task Scheduler, Storage, Functions, and Static Web App
+- Build and deploy the backend API
+- Build and deploy the frontend React application
+
+Follow the prompts to select your subscription and region.
+
+### 4. Deploy the Web Frontend
+
+After the initial deployment, deploy the web frontend with the correct API URL:
+
+**Bash**
+```bash
+azd package web
+azd deploy web
+```
+
+**PowerShell**
+```powershell
+azd package web
+azd deploy web
+```
+
+### 5. Access the Application
+
+Once deployment completes, the CLI will output the URLs for your services:
+
+- **Frontend**: `https://<your-static-web-app>.azurestaticapps.net`
+- **API**: `https://<your-function-app>.azurewebsites.net`
+
+## Local Development
+
+### 1. Start Azure Storage Emulator
+
+**Bash**
+```bash
+npm install -g azurite
+azurite --silent --location ./azurite &
+```
+
+**PowerShell**
+```powershell
+npm install -g azurite
+Start-Process azurite -ArgumentList "--silent", "--location", "./azurite"
+```
+
+### 2. Start Durable Task Scheduler Emulator
+
+**Bash**
+```bash
+docker run -d -p 8080:8080 mcr.microsoft.com/dts/dts-emulator:latest
+```
+
+**PowerShell**
+```powershell
+docker run -d -p 8080:8080 mcr.microsoft.com/dts/dts-emulator:latest
+```
+
+### 3. Configure Local Settings
+
+Create a `local.settings.json` file:
+
+```json
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "DURABLE_TASK_SCHEDULER_CONNECTION_STRING": "Endpoint=http://localhost:8080;Authentication=None",
+    "TASKHUB_NAME": "default",
+    "AZURE_OPENAI_ENDPOINT": "https://<your-endpoint>.openai.azure.com/",
+    "AZURE_OPENAI_DEPLOYMENT_NAME": "gpt-4o-mini"
+  },
+  "Host": {
+    "LocalHttpPort": 7071,
+    "CORS": "*"
+  }
+}
+```
+
+> **Note**: The application uses `DefaultAzureCredential` for authentication. Run `az login` before starting the application.
+
+### 4. Start the Backend
+
+**Bash**
+```bash
+func start
+```
+
+**PowerShell**
+```powershell
+func start
+```
+
+### 5. Start the Frontend
+
+**Bash**
+```bash
+cd Frontend
+npm install
+npm start
+```
+
+**PowerShell**
+```powershell
+cd Frontend
+npm install
+npm start
+```
+
+The application will be available at `http://localhost:3000`.
+
+## Clean Up
+
+To remove all Azure resources and avoid ongoing charges:
+
+**Bash**
+```bash
+azd down --purge
+```
+
+**PowerShell**
+```powershell
+azd down --purge
+```
+
+## Learn More
+
+- [Durable Task Extension for Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/user-guide/agents/agent-types/durable-agent/create-durable-agent)
+- [Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/overview/agent-framework-overview)
+- [Azure Durable Task Scheduler](https://learn.microsoft.com/en-us/azure/azure-functions/durable/durable-task-scheduler/quickstart-durable-task-scheduler)
+- [Azure Developer CLI](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/)
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
