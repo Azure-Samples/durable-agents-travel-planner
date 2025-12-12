@@ -93,7 +93,23 @@ az cognitiveservices usage list --location "westus3" |
 
 Replace `"westus2"` with your desired region. If the model is available and you have quota, it will appear in the output.
 
-### 4. Provision and Deploy
+### 4. Set Model Location
+
+Set the `MODEL_LOCATION` environment variable to the region where you have Cognitive Services access:
+
+**Bash**
+```bash
+export MODEL_LOCATION="westus3"
+```
+
+**PowerShell**
+```powershell
+$env:MODEL_LOCATION="westus3"
+```
+
+Replace `"westus3"` with your chosen region from step 3.
+
+### 5. Provision and Deploy
 
 Run the following command to provision all Azure resources and deploy the application:
 
@@ -110,21 +126,48 @@ This command will:
 
 Follow the prompts to select your subscription and region.
 
-### 5. Deploy the Web Frontend
-
-After the initial deployment, deploy the web frontend with the correct API URL:
-
-```bash
-azd package web
-azd deploy web
-```
-
 ### 6. Access the Application
 
 Once deployment completes, the CLI will output the URLs for your services:
 
 - **Frontend**: `https://<your-static-web-app>.azurestaticapps.net`
 - **API**: `https://<your-function-app>.azurewebsites.net`
+
+## Testing the Application
+
+### 1. Access the Frontend
+
+Navigate to your Static Web App URL in a browser. You'll see the AI Travel Planner interface.
+
+### 2. Create a Travel Plan
+
+1. Enter your travel preferences in the chat interface:
+   - Destination preferences
+   - Travel dates
+   - Budget range
+   - Activities of interest
+
+2. Submit your request and watch the durable agents workflow in action:
+   - **Destination Agent**: Analyzes your preferences and suggests destinations
+   - **Itinerary Agent**: Creates detailed day-by-day plans
+   - **Local Guide Agent**: Adds insider tips and local attractions
+
+3. Review the generated travel plan and approve it to complete the workflow
+
+### 3. Monitor Workflow Execution
+
+View the Durable Task Scheduler dashboard to monitor your workflow:
+
+**Dashboard URL**: `https://dashboard.durabletask.io/`
+
+> **Note**: You'll need to configure the dashboard with your Azure scheduler details. In the dashboard, enter your subscription ID, resource group, and scheduler name to connect to your deployed application.
+
+The dashboard shows:
+- Active workflow instances
+- Execution history
+- Task completion status
+- Error details (if any)
+- Performance metrics
 
 ## Local Development
 

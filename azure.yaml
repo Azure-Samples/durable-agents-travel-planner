@@ -17,7 +17,7 @@ services:
     language: js
     host: staticwebapp
     hooks:
-      prepackage:
+      predeploy:
         posix:
           shell: sh
           interactive: true
