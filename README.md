@@ -58,47 +58,51 @@ Before you begin, ensure you have the following installed:
 
 ### 1. Clone the Repository
 
-**Bash**
 ```bash
 git clone https://github.com/Azure-Samples/Durable-Task-Scheduler.git
 cd Durable-Task-Scheduler/samples/durable-functions/dotnet/AiAgentTravelPlanOrchestrator
 ```
 
-**PowerShell**
-```powershell
-git clone https://github.com/Azure-Samples/Durable-Task-Scheduler.git
-cd Durable-Task-Scheduler\samples\durable-functions\dotnet\AiAgentTravelPlanOrchestrator
-```
-
 ### 2. Login to Azure
 
-**Bash**
 ```bash
 azd auth login
 az login
 ```
 
-**PowerShell**
-```powershell
-azd auth login
-az login
+### 3. Choose a region
+
+When selecting a region for deployment, you need to ensure it supports the **GPT-4o-mini** model. Use the Azure CLI to verify that your chosen region has quota available for the GPT-4o-mini model:
+
+**Bash**
+```bash
+az cognitiveservices usage list --location "westus3"  |
+        jq -r '.[] | select(.name.value | contains("OpenAI.Standard.gpt-4o-mini"))
+                   | select(.currentValue < .limit)
+                   | .name.value'
 ```
 
-### 3. Provision and Deploy
+**PowerShell**
+```powershell
+az cognitiveservices usage list --location "westus3" | 
+    ConvertFrom-Json | 
+    Where-Object { $_.name.value -like "*OpenAI.Standard.gpt-4o-mini*" -and $_.currentValue -lt $_.limit } | 
+    Select-Object -ExpandProperty name | 
+    Select-Object -ExpandProperty value
+```
+
+Replace `"westus2"` with your desired region. If the model is available and you have quota, it will appear in the output.
+
+### 4. Provision and Deploy
 
 Run the following command to provision all Azure resources and deploy the application:
 
-**Bash**
 ```bash
-azd up
-```
-
-**PowerShell**
-```powershell
 azd up
 ```
 
 This command will:
+
 - Create a new resource group
 - Provision Azure OpenAI, Durable Task Scheduler, Storage, Functions, and Static Web App
 - Build and deploy the backend API
@@ -106,23 +110,16 @@ This command will:
 
 Follow the prompts to select your subscription and region.
 
-### 4. Deploy the Web Frontend
+### 5. Deploy the Web Frontend
 
 After the initial deployment, deploy the web frontend with the correct API URL:
 
-**Bash**
 ```bash
 azd package web
 azd deploy web
 ```
 
-**PowerShell**
-```powershell
-azd package web
-azd deploy web
-```
-
-### 5. Access the Application
+### 6. Access the Application
 
 Once deployment completes, the CLI will output the URLs for your services:
 
@@ -147,13 +144,7 @@ Start-Process azurite -ArgumentList "--silent", "--location", "./azurite"
 
 ### 2. Start Durable Task Scheduler Emulator
 
-**Bash**
 ```bash
-docker run -d -p 8080:8080 mcr.microsoft.com/dts/dts-emulator:latest
-```
-
-**PowerShell**
-```powershell
 docker run -d -p 8080:8080 mcr.microsoft.com/dts/dts-emulator:latest
 ```
 
@@ -183,27 +174,13 @@ Create a `local.settings.json` file:
 
 ### 4. Start the Backend
 
-**Bash**
 ```bash
-func start
-```
-
-**PowerShell**
-```powershell
 func start
 ```
 
 ### 5. Start the Frontend
 
-**Bash**
 ```bash
-cd Frontend
-npm install
-npm start
-```
-
-**PowerShell**
-```powershell
 cd Frontend
 npm install
 npm start
@@ -215,13 +192,7 @@ The application will be available at `http://localhost:3000`.
 
 To remove all Azure resources and avoid ongoing charges:
 
-**Bash**
 ```bash
-azd down --purge
-```
-
-**PowerShell**
-```powershell
 azd down --purge
 ```
 
