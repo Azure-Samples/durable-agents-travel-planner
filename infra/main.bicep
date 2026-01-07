@@ -82,6 +82,16 @@ param modelLocation string = location
 @description('The AI Service Account full ARM Resource ID. This is an optional field, and if not provided, the resource will be created.')
 param aiServiceAccountResourceId string = ''
 
+@description('Name of the Redis cache')
+param redisCacheName string = ''
+
+@description('Redis cache SKU')
+@allowed(['Basic', 'Standard', 'Premium'])
+param redisCacheSku string = 'Basic'
+
+@description('Redis cache capacity (0-6 for Basic/Standard, 1-5 for Premium)')
+param redisCacheCapacity int = 0
+
 // Variables
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, rg.id, environmentName, location))
@@ -267,6 +277,10 @@ module api 'br/public:avm/res/web/site:0.19.3' = {
         { name: 'AZURE_CLIENT_ID', value: apiUserAssignedIdentity.outputs.clientId }
         { name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING', value: 'ClientId=${apiUserAssignedIdentity.outputs.clientId};Authorization=AAD' }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: monitoring.outputs.connectionString }
+        { name: 'REDIS_HOST_NAME', value: redis.outputs.hostName }
+        { name: 'REDIS_SSL_PORT', value: string(redis.outputs.sslPort) }
+        { name: 'REDIS_USE_MANAGED_IDENTITY', value: 'true' }
+        { name: 'REDIS_STREAM_TTL_MINUTES', value: '60' }
       ]
     }
   }
@@ -318,9 +332,47 @@ module aiServices 'br/public:avm/res/cognitive-services/account:0.9.2' = if (!ai
   }
 }
 
-// Storage role assignments using AVM pattern
-// Blob and table roles now inline in storage module
+// Storage role assignments using AVM pattern\n// Blob and table roles now inline in storage module
 var storageQueueDataContributorRole = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+
+// Compute Redis cache name for reuse
+var redisCacheNameValue = !empty(redisCacheName) ? redisCacheName : '${abbrs.cacheRedis}${resourceToken}'
+
+// Azure Cache for Redis for reliable streaming with Entra ID authentication
+module redis 'br/public:avm/res/cache/redis:0.16.4' = {
+  scope: rg
+  name: 'redis-${resourceToken}'
+  params: {
+    name: redisCacheNameValue
+    location: location
+    tags: tags
+    skuName: redisCacheSku
+    capacity: redisCacheCapacity
+    enableNonSslPort: false
+    minimumTlsVersion: '1.2'
+    publicNetworkAccess: 'Enabled'
+    redisVersion: '6'
+    disableAccessKeyAuthentication: true  // Disable local auth - only Entra ID allowed
+    redisConfiguration: {
+      'aad-enabled': 'true'
+    }
+    // Access policy assignments for Entra ID authentication
+    accessPolicyAssignments: [
+      {
+        name: 'api-identity-access'
+        accessPolicyName: 'Data Owner'
+        objectId: apiUserAssignedIdentity.outputs.principalId
+        objectIdAlias: 'api-managed-identity'
+      }
+      {
+        name: 'user-access'
+        accessPolicyName: 'Data Owner'
+        objectId: principalId
+        objectIdAlias: 'deployer-user'
+      }
+    ]
+  }
+}
 
 // storageRoleAssignmentApi - now inline in storage module
 // storageRoleAssignmentUser - now inline in storage module
@@ -500,3 +552,5 @@ output RESOURCE_GROUP string = rg.name
 output STORAGE_CONNECTION__queueServiceUri string = 'https://${storage.outputs.name}.queue.${environment().suffixes.storage}'
 output AZURE_OPENAI_ENDPOINT string = aiServiceExists ? reference(aiServiceAccountResourceId, '2023-05-01').endpoint : aiServices!.outputs.endpoint
 output AZURE_OPENAI_DEPLOYMENT_NAME string = modelName
+output REDIS_HOST_NAME string = redis.outputs.hostName
+output REDIS_SSL_PORT int = redis.outputs.sslPort

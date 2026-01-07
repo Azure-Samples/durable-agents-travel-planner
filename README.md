@@ -91,7 +91,21 @@ az cognitiveservices usage list --location "westus3" |
     Select-Object -ExpandProperty value
 ```
 
-Replace `"westus2"` with your desired region. If the model is available and you have quota, it will appear in the output.
+Replace `"westus3"` with your desired region. If the model is available and you have quota, it will appear in the output.
+
+Once you find a region with available quota, set it as an environment variable for azd:
+
+```bash
+azd env set MODEL_LOCATION <your-region>
+```
+
+For example, if you have quota in `eastus2`:
+
+```bash
+azd env set MODEL_LOCATION eastus2
+```
+
+> **Note**: Common regions with Azure OpenAI availability include `eastus`, `eastus2`, `westus`, `westus3`, `swedencentral`, and `northcentralus`.
 
 ### 4. Provision and Deploy
 

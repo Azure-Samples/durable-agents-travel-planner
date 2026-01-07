@@ -5,10 +5,9 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)), url('bg.jpeg');
-  background-size: cover;
+  background: linear-gradient(135deg, #0a0f1a 0%, #1a1f3a 50%, #0f172a 100%);
   background-attachment: fixed;
-  background-position: center;
+  min-height: 100vh;
 }
 
 code {

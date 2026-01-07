@@ -1,3 +1,13 @@
+// =============================================================================
+// TravelPlannerApi.cs - HTTP API Endpoints for Direct Orchestration Control
+// =============================================================================
+// These API endpoints allow direct interaction with the travel planner
+// orchestration, bypassing the conversational agent. Useful for:
+// - Programmatic access to travel planning
+// - Status monitoring and polling
+// - Approval/rejection handling from external systems
+// =============================================================================
+
 using System.Net;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -7,15 +17,33 @@ using TravelPlannerFunctions.Models;
 
 namespace TravelPlannerFunctions.Functions;
 
+/// <summary>
+/// HTTP trigger functions for direct orchestration control.
+/// These complement the conversational API for programmatic access.
+/// </summary>
 public class TravelPlannerApi
 {
     private readonly ILogger _logger;
 
+    /// <summary>
+    /// Initializes the API with logging support.
+    /// </summary>
     public TravelPlannerApi(ILoggerFactory loggerFactory)
     {
         _logger = loggerFactory.CreateLogger<TravelPlannerApi>();
     }
 
+    // =========================================================================
+    // Orchestration Lifecycle Endpoints
+    // =========================================================================
+
+    /// <summary>
+    /// Starts a new travel planning orchestration.
+    /// POST /api/travel-planner
+    /// </summary>
+    /// <param name="req">HTTP request containing a TravelRequest JSON body.</param>
+    /// <param name="client">Durable Task client for orchestration management.</param>
+    /// <returns>202 Accepted with instance ID and status URL.</returns>
     [Function(nameof(StartTravelPlanning))]
     public async Task<HttpResponseData> StartTravelPlanning(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "travel-planner")] HttpRequestData req,
@@ -59,13 +87,23 @@ public class TravelPlannerApi
         return response;
     }
 
+    /// <summary>
+    /// Gets the current status of a travel planning orchestration.
+    /// GET /api/travel-planner/status/{instanceId}
+    /// </summary>
+    /// <param name="req">HTTP request.</param>
+    /// <param name="instanceId">The orchestration instance ID.</param>
+    /// <param name="client">Durable Task client for status queries.</param>
+    /// <returns>200 OK with orchestration status, or 404 if not found.</returns>
     [Function(nameof(GetTravelPlanningStatus))]
     public async Task<HttpResponseData> GetTravelPlanningStatus(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "travel-planner/status/{instanceId}")] HttpRequestData req,
         string instanceId,
         [DurableClient] DurableTaskClient client)
     {
-        _logger.LogInformation("Getting status for orchestration with ID = {instanceId}", instanceId);
+        _logger.LogInformation(
+            "Getting status for orchestration with ID = {instanceId}", 
+            instanceId);
 
         // Get the orchestration status
         var status = await client.GetInstanceAsync(instanceId, true);
@@ -83,13 +121,27 @@ public class TravelPlannerApi
         return response;
     }
 
+    // =========================================================================
+    // Approval Handling Endpoints
+    // =========================================================================
+
+    /// <summary>
+    /// Handles user approval or rejection of a travel plan.
+    /// POST /api/travel-planner/approve/{instanceId}
+    /// </summary>
+    /// <param name="req">HTTP request containing ApprovalResponse JSON body.</param>
+    /// <param name="instanceId">The orchestration instance ID awaiting approval.</param>
+    /// <param name="client">Durable Task client for raising events.</param>
+    /// <returns>200 OK with approval confirmation.</returns>
     [Function(nameof(HandleApprovalResponse))]
     public async Task<HttpResponseData> HandleApprovalResponse(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "travel-planner/approve/{instanceId}")] HttpRequestData req,
         string instanceId,
         [DurableClient] DurableTaskClient client)
     {
-        _logger.LogInformation("Received approval response for orchestration with ID = {instanceId}", instanceId);
+        _logger.LogInformation(
+            "Received approval response for orchestration with ID = {instanceId}", 
+            instanceId);
 
         // Parse the approval response
         ApprovalResponse approvalResponse;
@@ -124,13 +176,31 @@ public class TravelPlannerApi
 
 
 
+    // =========================================================================
+    // Confirmation Status Endpoint
+    // =========================================================================
+
+    /// <summary>
+    /// Gets detailed confirmation status for a completed orchestration.
+    /// GET /api/travel-planner/confirmation/{instanceId}
+    /// </summary>
+    /// <remarks>
+    /// Returns additional fields indicating whether the booking was confirmed,
+    /// rejected, or still pending.
+    /// </remarks>
+    /// <param name="req">HTTP request.</param>
+    /// <param name="instanceId">The orchestration instance ID.</param>
+    /// <param name="client">Durable Task client for status queries.</param>
+    /// <returns>200 OK with confirmation details, or 404 if not found.</returns>
     [Function(nameof(GetTripConfirmationStatus))]
     public async Task<HttpResponseData> GetTripConfirmationStatus(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "travel-planner/confirmation/{instanceId}")] HttpRequestData req,
         string instanceId,
         [DurableClient] DurableTaskClient client)
     {
-        _logger.LogInformation("Getting confirmation status for orchestration with ID = {instanceId}", instanceId);
+        _logger.LogInformation(
+            "Getting confirmation status for orchestration with ID = {instanceId}", 
+            instanceId);
 
         // Get the orchestration status
         var status = await client.GetInstanceAsync(instanceId, true);

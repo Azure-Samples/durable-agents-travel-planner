@@ -12,6 +12,12 @@
 # Azure Functions local settings (may contain secrets)
 local.settings.json
 
+# Azurite local storage emulator
+__azurite_db_*.json
+__blobstorage__/
+__queuestorage__/
+AzuriteConfig
+
 # Environment files
 .env
 .env.*

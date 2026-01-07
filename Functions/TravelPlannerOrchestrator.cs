@@ -1,22 +1,41 @@
+// =============================================================================
+// TravelPlannerOrchestrator.cs - Durable Functions Orchestration
+// =============================================================================
+// This orchestrator coordinates the multi-agent travel planning workflow.
+// It demonstrates several Durable Functions patterns:
+// - Fan-out/Fan-in: Parallel execution of itinerary and recommendations agents
+// - Human Interaction: Waiting for user approval before booking
+// - External Events: Receiving approval/rejection responses
+// - Durable Agents: AI-powered agents for specialized tasks
+// =============================================================================
+
 using System.Text;
 using System.Text.Json;
-using Microsoft.Azure.Functions.Worker;
 using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.DurableTask;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.DurableTask;
 using Microsoft.Extensions.Logging;
 using TravelPlannerFunctions.Models;
-using Microsoft.Agents.AI.Hosting.AzureFunctions;
-using Microsoft.Agents.AI.DurableTask;
-using Microsoft.DurableTask;
-using Microsoft.DurableTask.Client;
 
 namespace TravelPlannerFunctions.Functions;
 
+/// <summary>
+/// Orchestrates the complete travel planning workflow using multiple AI agents.
+/// </summary>
 public class TravelPlannerOrchestrator
 {
-    private const int ApprovalTimeoutDays = 7;
-    private const int StatusMaxSizeBytes = 16_384; // 16KB
+    // =========================================================================
+    // Constants
+    // =========================================================================
     
-    // Progress milestones
+    /// <summary>Days to wait for user approval before timing out.</summary>
+    private const int ApprovalTimeoutDays = 7;
+    
+    /// <summary>Maximum size for orchestration custom status (Azure limit).</summary>
+    private const int StatusMaxSizeBytes = 16_384; // 16KB
+
+    // Progress milestone percentages for UI display
     private const int ProgressStarting = 0;
     private const int ProgressDestinations = 10;
     private const int ProgressItinerary = 30;
@@ -26,29 +45,87 @@ public class TravelPlannerOrchestrator
     private const int ProgressWaitingForApproval = 90;
     private const int ProgressBooking = 95;
     
+    // =========================================================================
+    // Constructor
+    // =========================================================================
+    
     private readonly ILogger _logger;
 
+    /// <summary>
+    /// Initializes the orchestrator with logging support.
+    /// </summary>
     public TravelPlannerOrchestrator(ILoggerFactory loggerFactory)
     {
         _logger = loggerFactory.CreateLogger<TravelPlannerOrchestrator>();
     }
 
+    // =========================================================================
+    // Helper Methods
+    // =========================================================================
+    
+    /// <summary>
+    /// Streams a progress update to the conversation if a conversation ID is provided.
+    /// Progress updates appear in the chat UI in real-time.
+    /// </summary>
+    private static async Task StreamProgressAsync(
+        TaskOrchestrationContext context, 
+        string? conversationId, 
+        string message)
+    {
+        if (!string.IsNullOrEmpty(conversationId))
+        {
+            await context.CallActivityAsync(
+                nameof(TravelPlannerActivities.StreamProgressUpdate),
+                new ProgressUpdateRequest(conversationId, message));
+        }
+    }
+
+    // =========================================================================
+    // Main Orchestration Function
+    // =========================================================================
+    
+    /// <summary>
+    /// The main orchestration function that coordinates the travel planning workflow.
+    /// </summary>
+    /// <remarks>
+    /// Workflow Steps:
+    /// 1. Get destination recommendations based on user preferences
+    /// 2. Create detailed itinerary (parallel with step 3)
+    /// 3. Get local recommendations (parallel with step 2)
+    /// 4. Save travel plan to blob storage
+    /// 5. Request user approval (Human-in-the-Loop)
+    /// 6. Wait for approval event
+    /// 7. If approved, book the trip
+    /// </remarks>
+    /// <param name="context">The orchestration context from Durable Functions.</param>
+    /// <returns>The complete travel plan result with booking confirmation if approved.</returns>
     [Function(nameof(RunTravelPlannerOrchestration))]
     public async Task<TravelPlanResult> RunTravelPlannerOrchestration(
         [OrchestrationTrigger] TaskOrchestrationContext context)
     {
         var travelRequest = context.GetInput<TravelRequest>()
             ?? throw new ArgumentNullException(nameof(context), "Travel request input is required");
-            
+
         var logger = context.CreateReplaySafeLogger<TravelPlannerOrchestrator>();
-        logger.LogInformation("Starting travel planning orchestration for user {UserName}", travelRequest.UserName);
+        logger.LogInformation(
+            "Starting travel planning orchestration for user {UserName}", 
+            travelRequest.UserName);
+
+        // Stream initial progress to the conversation
+        await StreamProgressAsync(context, travelRequest.ConversationId,
+            "\n\n🚀 **Starting your trip planning!**\n");
 
         // Set initial status
         SetOrchestrationStatus(context, "Starting", 
             $"Starting travel planning for {travelRequest.UserName}", 
             ProgressStarting);
 
-        // Get the durable agents for the travel planning workflow
+        // -----------------------------------------------------------------
+        // Initialize AI Agents
+        // -----------------------------------------------------------------
+        // Each agent is specialized for a specific task in the workflow.
+        // Agents are durable and can be replayed safely.
+        // -----------------------------------------------------------------
         DurableAIAgent destinationAgent = context.GetAgent("DestinationRecommenderAgent");
         DurableAIAgent itineraryAgent = context.GetAgent("ItineraryPlannerAgent");
         DurableAIAgent localRecommendationsAgent = context.GetAgent("LocalRecommendationsAgent");
@@ -58,8 +135,12 @@ public class TravelPlannerOrchestrator
         AgentThread itineraryThread = itineraryAgent.GetNewThread();
         AgentThread localThread = localRecommendationsAgent.GetNewThread();
 
-        // Step 1: Get destination recommendations
+        // -----------------------------------------------------------------
+        // Step 1: Get Destination Recommendations
+        // -----------------------------------------------------------------
         logger.LogInformation("Step 1: Requesting destination recommendations");
+        await StreamProgressAsync(context, travelRequest.ConversationId,
+            "🔍 **Step 1/5:** Finding the best destinations for your preferences...\n");
         SetOrchestrationStatus(context, "GetDestinationRecommendations",
             "Finding the perfect destinations for your travel preferences...",
             ProgressDestinations);
@@ -81,6 +162,8 @@ public class TravelPlannerOrchestrator
         if (destinationRecommendations.Recommendations.Count == 0)
         {
             logger.LogWarning("No destination recommendations were generated");
+            await StreamProgressAsync(context, travelRequest.ConversationId,
+                "❌ Sorry, I couldn't find any destinations matching your preferences.\n");
             return new TravelPlanResult(CreateEmptyTravelPlan(), string.Empty);
         }
         
@@ -90,9 +173,22 @@ public class TravelPlannerOrchestrator
             .First();
             
         logger.LogInformation("Selected top destination: {DestinationName}", topDestination.DestinationName);
+        
+        // Stream destination selection
+        await StreamProgressAsync(context, travelRequest.ConversationId,
+            $"\n✅ Found your perfect destination: **{topDestination.DestinationName}** (Match: {topDestination.MatchScore}%)\n");
 
-        // Steps 2 & 3: Create itinerary and get local recommendations in parallel
-        logger.LogInformation("Steps 2 & 3: Creating itinerary and getting local recommendations for {DestinationName} in parallel", topDestination.DestinationName);
+        // -----------------------------------------------------------------
+        // Steps 2 & 3: Parallel Execution (Fan-out/Fan-in Pattern)
+        // -----------------------------------------------------------------
+        // Create itinerary and get local recommendations simultaneously.
+        // This reduces total execution time significantly.
+        // -----------------------------------------------------------------
+        logger.LogInformation(
+            "Steps 2 & 3: Creating itinerary and getting local recommendations for {DestinationName} in parallel", 
+            topDestination.DestinationName);
+        await StreamProgressAsync(context, travelRequest.ConversationId,
+            $"\n📅 **Step 2/5:** Creating your day-by-day itinerary...\n\n🍽️ **Step 3/5:** Finding local restaurants & attractions...\n");
         SetOrchestrationStatus(context, "CreateItineraryAndRecommendations",
             $"Creating a detailed itinerary and finding local gems in {topDestination.DestinationName}...",
             ProgressItinerary, topDestination.DestinationName);
@@ -135,11 +231,21 @@ public class TravelPlannerOrchestrator
         var itinerary = ValidateAndFixCostCalculation(itineraryResponse.Result, logger);
         var localRecommendations = localRecommendationsResponse.Result;
 
+        // Stream itinerary completion
+        await StreamProgressAsync(context, travelRequest.ConversationId,
+            $"\n✅ Itinerary created: {itinerary.DailyPlan.Count} days planned, estimated cost: {itinerary.EstimatedTotalCost}\n");
+        await StreamProgressAsync(context, travelRequest.ConversationId,
+            $"\n✅ Found {localRecommendations.Attractions.Count} attractions and {localRecommendations.Restaurants.Count} restaurants!\n");
+
         // Combine all results into a comprehensive travel plan
         var travelPlan = new TravelPlan(destinationRecommendations, itinerary, localRecommendations);
         
-        // Step 4: Save the travel plan to blob storage
+        // -----------------------------------------------------------------
+        // Step 4: Save Travel Plan to Blob Storage
+        // -----------------------------------------------------------------
         logger.LogInformation("Step 4: Saving travel plan to blob storage");
+        await StreamProgressAsync(context, travelRequest.ConversationId,
+            "\n💾 **Step 4/5:** Saving your travel plan...\n");
         SetOrchestrationStatus(context, "SaveTravelPlan",
             "Finalizing your travel plan and preparing documentation...",
             ProgressSavingPlan, topDestination.DestinationName);
@@ -156,16 +262,41 @@ public class TravelPlannerOrchestrator
             documentUrl = null;
         }
         
-        // Step 5: Request approval before booking the trip (Human Interaction Pattern)
+        // -----------------------------------------------------------------
+        // Step 5: Request User Approval (Human-in-the-Loop Pattern)
+        // -----------------------------------------------------------------
         logger.LogInformation("Step 5: Requesting approval for travel plan");
+        await StreamProgressAsync(context, travelRequest.ConversationId,
+            "\n✅ Travel plan saved!\n\n📋 **Step 5/5:** Preparing your plan for review...\n");
+        
+        // Stream the complete travel plan summary
+        await StreamProgressAsync(context, travelRequest.ConversationId,
+            FormatTravelPlanSummary(travelPlan, context.InstanceId));
+        
         SetOrchestrationStatus(context, "RequestApproval",
             "Sending travel plan for your approval...",
             ProgressRequestingApproval, topDestination.DestinationName, documentUrl);
         var approvalRequest = new ApprovalRequest(context.InstanceId, travelPlan, travelRequest.UserName);
         await context.CallActivityAsync(nameof(TravelPlannerActivities.RequestApproval), approvalRequest);
         
-        // Step 6: Wait for approval
-        logger.LogInformation("Step 6: Waiting for approval from user {UserName}", travelRequest.UserName);
+        // -----------------------------------------------------------------
+        // Step 6: Wait for External Event (User Approval)
+        // -----------------------------------------------------------------
+        // The orchestration will pause here until the user approves/rejects
+        // or the timeout expires (7 days by default).
+        // -----------------------------------------------------------------
+        logger.LogInformation(
+            "Step 6: Waiting for approval from user {UserName}", 
+            travelRequest.UserName);
+        
+        // Send completion marker to the stream - the frontend will close its connection
+        // The user can later check the approval status through a separate API
+        if (!string.IsNullOrEmpty(travelRequest.ConversationId))
+        {
+            await context.CallActivityAsync(
+                nameof(TravelPlannerActivities.StreamCompletion),
+                travelRequest.ConversationId);
+        }
         
         // Wait for external event with timeout
         ApprovalResponse approvalResponse;
@@ -188,9 +319,13 @@ public class TravelPlannerOrchestrator
         // Check if the trip was approved
         if (approvalResponse.Approved)
         {
-            // Step 7: Book the trip if approved
-            logger.LogInformation("Step 7: Booking trip to {Destination} for user {UserName}", 
-                itinerary.DestinationName, travelRequest.UserName);
+            // -----------------------------------------------------------------
+            // Step 7: Book the Trip (Approved)
+            // -----------------------------------------------------------------
+            logger.LogInformation(
+                "Step 7: Booking trip to {Destination} for user {UserName}",
+                itinerary.DestinationName, 
+                travelRequest.UserName);
                 
             SetOrchestrationStatus(context, "BookingTrip",
                 $"Booking your trip to {topDestination.DestinationName}...",
@@ -203,11 +338,14 @@ public class TravelPlannerOrchestrator
             // Return the travel plan with booking confirmation
             logger.LogInformation("Completed travel planning for {UserName} with booking confirmation {BookingId}", 
                 travelRequest.UserName, bookingConfirmation.BookingId);
+            
+            // Format rich booking confirmation
+            var confirmationText = FormatBookingConfirmation(bookingConfirmation, travelRequest.UserName);
                 
             return new TravelPlanResult(
                 travelPlan, 
                 documentUrl, 
-                $"Booking confirmed: {bookingConfirmation.BookingId} - {bookingConfirmation.ConfirmationDetails}");
+                confirmationText);
         }
         else
         {
@@ -223,6 +361,13 @@ public class TravelPlannerOrchestrator
     }
 }
 
+    // =========================================================================
+    // Private Helper Methods
+    // =========================================================================
+
+    /// <summary>
+    /// Creates an empty travel plan for error cases.
+    /// </summary>
     private TravelPlan CreateEmptyTravelPlan()
     {
         return new TravelPlan(
@@ -385,5 +530,107 @@ public class TravelPlannerOrchestrator
         }
         
         context.SetCustomStatus(waitingStatus);
+    }
+
+    /// <summary>
+    /// Formats a travel plan as a markdown summary for streaming to the user.
+    /// </summary>
+    private static string FormatTravelPlanSummary(TravelPlan travelPlan, string instanceId)
+    {
+        var sb = new StringBuilder();
+        var destination = travelPlan.DestinationRecommendations.Recommendations
+            .OrderByDescending(r => r.MatchScore)
+            .FirstOrDefault();
+        var itinerary = travelPlan.Itinerary;
+        var local = travelPlan.LocalRecommendations;
+
+        sb.AppendLine("---");
+        sb.AppendLine("## 🎉 Your Travel Plan is Ready!");
+        sb.AppendLine();
+        
+        if (destination != null)
+        {
+            sb.AppendLine($"### 📍 Destination: {destination.DestinationName}");
+            sb.AppendLine($"_{destination.Description}_");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine($"### 📅 Itinerary ({itinerary.DailyPlan.Count} days)");
+        sb.AppendLine($"**Dates:** {itinerary.TravelDates}");
+        sb.AppendLine($"**Estimated Cost:** {itinerary.EstimatedTotalCost}");
+        sb.AppendLine();
+
+        // Show all days in the itinerary
+        foreach (var day in itinerary.DailyPlan)
+        {
+            sb.AppendLine($"**Day {day.Day}** - {day.Date}");
+            foreach (var activity in day.Activities)
+            {
+                sb.AppendLine($"- {activity.Time}: {activity.ActivityName} ({activity.EstimatedCost})");
+            }
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("### 🍽️ Top Recommendations");
+        
+        var topAttractions = local.Attractions.Take(3).ToList();
+        if (topAttractions.Count > 0)
+        {
+            sb.AppendLine("**Attractions:**");
+            foreach (var a in topAttractions)
+            {
+                sb.AppendLine($"- {a.Name} ⭐{a.Rating}");
+            }
+        }
+
+        var topRestaurants = local.Restaurants.Take(3).ToList();
+        if (topRestaurants.Count > 0)
+        {
+            sb.AppendLine("**Restaurants:**");
+            foreach (var r in topRestaurants)
+            {
+                sb.AppendLine($"- {r.Name} ({r.Cuisine}) {r.PriceRange}");
+            }
+        }
+        sb.AppendLine();
+
+        if (!string.IsNullOrEmpty(local.InsiderTips))
+        {
+            sb.AppendLine("### 💡 Insider Tip");
+            sb.AppendLine($"_{local.InsiderTips}_");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("---");
+        sb.AppendLine();
+        sb.AppendLine("⏳ **Awaiting your approval!** Reply with 'approve' to book this trip or 'reject' to start over.");
+        sb.AppendLine($"_(Orchestration ID: `{instanceId}`)_");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Formats a booking confirmation with hotel details.
+    /// </summary>
+    private static string FormatBookingConfirmation(BookingConfirmation confirmation, string userName)
+    {
+        var sb = new StringBuilder();
+        
+        sb.AppendLine($"🎉 **Booking Confirmed!**");
+        sb.AppendLine();
+        sb.AppendLine($"**Confirmation Number:** `{confirmation.BookingId}`");
+        sb.AppendLine($"**Traveler:** {userName}");
+        sb.AppendLine($"**Booking Date:** {confirmation.BookingDate:MMMM d, yyyy}");
+        sb.AppendLine();
+        
+        if (!string.IsNullOrEmpty(confirmation.HotelConfirmation))
+        {
+            sb.AppendLine($"🏨 **Hotel Confirmation:** `{confirmation.HotelConfirmation}`");
+            sb.AppendLine();
+        }
+        
+        sb.AppendLine(confirmation.ConfirmationDetails);
+        
+        return sb.ToString();
     }
 }
